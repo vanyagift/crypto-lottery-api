@@ -2,60 +2,56 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Инициализация Supabase клиента
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_ANON_KEY!
 );
 
-// Маппинг type → отображаемое имя (для attributes.value)
-const TYPE_DISPLAY_NAMES: Record<string, string> = {
-  legendary: 'Legendary',
-  event: 'Event',
-  common: 'Common',
-  ref: 'Referral',
-  gift: 'Gift',
-};
-
-export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: Request, { params }: { params: { id: string } }) {
   const { id } = params;
-
-  // Проверка, что id — число
   const idNum = Number(id);
+
+  // === ЛОГИРОВАНИЕ НАЧАЛО ===
+  console.log("🔍 Запрошен ID:", idNum);
+  console.log("📡 SUPABASE_URL (частично):", process.env.SUPABASE_URL?.slice(0, 30) + "...");
+  console.log("🔑 SUPABASE_ANON_KEY (частично):", process.env.SUPABASE_ANON_KEY?.slice(0, 10) + "...");
+  // === ЛОГИРОВАНИЕ КОНЕЦ ===
+
   if (isNaN(idNum) || idNum <= 0 || !Number.isInteger(idNum)) {
     return NextResponse.json({ error: 'Invalid token ID' }, { status: 400 });
   }
 
-  // Запрос к Supabase
   const { data: ticket, error } = await supabase
-    .from('tickets') // Убедись, что название таблицы именно 'tickets'
-    .select('id, type, image, status, weight, draw_id, owner, created_at')
+    .from('tickets')
+    .select('id, type, image, status')
     .eq('id', idNum)
     .single();
 
+  // === ЛОГИРОВАНИЕ РЕЗУЛЬТАТА ===
+  console.log("📥 Ответ из Supabase:", { ticket, error });
+
   if (error || !ticket) {
-    return NextResponse.json({ error: 'Ticket not found' }, { status: 404 });
+    // Возвращаем отладку вместо 404
+    return NextResponse.json({
+      error: 'Ticket not found',
+      debug: {
+        id: idNum,
+        supabaseError: error,
+        supabaseUrl: process.env.SUPABASE_URL ? '✅ defined' : '❌ undefined',
+        supabaseKey: process.env.SUPABASE_ANON_KEY ? '✅ defined' : '❌ undefined',
+      }
+    }, { status: 404 });
   }
 
-  // Формируем attributes
-  const attributes = [
-    { trait_type: 'Type', value: TYPE_DISPLAY_NAMES[ticket.type] || ticket.type },
-    { trait_type: 'Status', value: ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1) },
-    { trait_type: 'Purchase Price', value: '1 USDT (paid in $LOTTO)' },
-    // Можно добавить другие атрибуты по желанию, например, вес или ID розыгрыша
-    // { trait_type: 'Weight', value: ticket.weight.toString() },
-    // { trait_type: 'Draw ID', value: ticket.draw_id.toString() },
-  ];
-
-  // Формируем метаданные
   const metadata = {
     name: `CryptoLottery Ticket #${ticket.id}`,
     description: 'A dynamic NFT ticket for the CryptoLottery draw.',
-    image: ticket.image, // Берём URL изображения напрямую из Supabase
-    attributes,
+    image: ticket.image?.trim() || null,
+    attributes: [
+      { trait_type: 'Type', value: ticket.type },
+      { trait_type: 'Status', value: ticket.status },
+      { trait_type: 'Purchase Price', value: '1 USDT (paid in $LOTTO)' },
+    ],
   };
 
   return NextResponse.json(metadata);
